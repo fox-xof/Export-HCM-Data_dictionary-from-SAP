@@ -1,0 +1,260 @@
+*&---------------------------------------------------------------------*
+*& Report Z_TEST
+*&---------------------------------------------------------------------*
+*&  用于获取SAP中的表结构数据字典和码表
+*&  原链接在这里：https://www.cnblogs.com/tianpan2019/p/12888597.html
+*&  第一版作者： 像一棵海草海草海草
+*& 本程序更新内容如下：
+*& 1）更新为多张表同时下载；
+*& 2）更新下载码表的功能
+*& 3）添加导出数据字典的内容：域，检查表，是否有选项值
+*&---------------------------------------------------------------------*
+REPORT z_test NO STANDARD PAGE HEADING
+                 MESSAGE-ID y2
+                 LINE-SIZE  200
+                 LINE-COUNT 65 .
+
+TABLES: dfies, x030l,rlgrap,  dd03l.
+
+DATA: BEGIN OF itab OCCURS 0.
+        INCLUDE STRUCTURE dfies.
+      DATA: END OF itab.
+
+*文件保存路径
+DATA: g_file LIKE rlgrap-filename.
+
+*数据库字段结构表
+DATA:BEGIN OF itab1 OCCURS 0,
+       tablename    LIKE dd03l-tabname, "表名
+       tabtext(25)  TYPE c, "表描述
+       fieldname    LIKE dfies-fieldname,  "字段名
+       keyflag(4),       "KEY
+       rollname(12),     "数据元素
+       datatype(8),      "数据类型
+       leng(6),          "长度
+       decimals(6),      "小数位
+       fieldtext    LIKE dfies-fieldtext,   "字段简短描述
+       domname      LIKE dfies-domname,
+       checktable   LIKE dfies-checktable,
+       f4availabl   LIKE dfies-f4availabl,
+     END OF itab1.
+
+DATA:BEGIN OF itab2 OCCURS 0,
+       tablename    LIKE dd03l-tabname, "表名
+       fieldname    LIKE dfies-fieldname,  "字段名
+       rollname(12),
+       f4availabl   LIKE dfies-f4availabl,
+     END OF itab2.
+
+DATA:BEGIN OF gt_domain OCCURS 0,
+       fieldname(30)  TYPE c,
+       shvalue_d(132) TYPE c,
+     END OF gt_domain .
+
+DATA:gt_table TYPE TABLE OF dd03l WITH HEADER LINE.
+*定义屏幕
+SELECTION-SCREEN BEGIN OF BLOCK blk1 WITH FRAME TITLE TEXT-001.
+SELECT-OPTIONS:table FOR dd03l-tabname DEFAULT 'HRP1000',        "默认表名
+           field    FOR dd03l-fieldname.                 "字段名
+PARAMETERS: p_dnfile LIKE rlgrap-filename DEFAULT 'E:'.   "默认存放地址
+PARAMETERS: c_op AS CHECKBOX.
+SELECTION-SCREEN END OF BLOCK blk1.
+
+START-OF-SELECTION.
+  PERFORM read_data."从表中读取数据
+
+END-OF-SELECTION.
+  PERFORM write_data."输出数据
+
+
+*--从表中读取数据----------------------------------------
+FORM read_data .
+  DATA:lv_table TYPE ddobjname,
+       lv_field TYPE dfies-fieldname.
+  TYPES: BEGIN OF ty_tabname,
+           tabname TYPE dd03l-tabname,
+         END OF ty_tabname.
+
+  DATA:lt_t777t TYPE TABLE OF t777t WITH HEADER LINE.
+  DATA:lt_t582s TYPE TABLE OF t582s WITH HEADER LINE.
+  DATA:lt_tabname TYPE TABLE OF ty_tabname WITH HEADER LINE.
+  DATA:lv_itext  TYPE text25.
+*用于检索帮助
+  DATA: l_shlp    TYPE shlp_descr_t,
+        l_retval  LIKE ddshretval OCCURS 0 WITH HEADER LINE,
+        lt_retval LIKE  ddshretval OCCURS 0 WITH HEADER LINE.
+
+
+  SELECT * INTO  TABLE gt_table[] FROM dd03l WHERE
+      tabname IN table.
+
+  SELECT * INTO TABLE lt_t777t[] FROM t777t WHERE
+    langu = sy-langu.
+  SELECT * INTO TABLE lt_t582s[] FROM t582s
+    WHERE sprsl = sy-langu.
+*    LOOP AT gt_table.
+*      MOVE-CORRESPONDING gt_table TO LT_TABNAME.
+*      APPEND LT_TABNAME.
+*      ENDLOOP.
+*    SORT LT_TABNAME.
+  SORT gt_table[].
+  DELETE ADJACENT DUPLICATES FROM gt_table[] COMPARING tabname.
+*****CALL FUNCTION*****
+  LOOP AT gt_table.
+    CLEAR lv_table.
+    REFRESH itab.
+    MOVE gt_table-tabname TO lv_table.
+    itab1-tablename = '表名'.
+    itab1-tabtext = '表描述'.
+    itab1-fieldname = '字段'.  "Fieldname
+    itab1-keyflag = '主键'.    "KEY
+    itab1-rollname = '数据元素'.   "Data Element
+    itab1-datatype = '数据类型'.   "Data Type
+    itab1-leng = '长度'.       "Length
+    itab1-decimals = '小数位'.  "Decimal Place
+    itab1-fieldtext = '短文本'.  "Short Description
+    itab1-domname   = '域名'.
+    itab1-checktable = '检查表'.
+    itab1-f4availabl = '是否有值列表'.
+
+    APPEND itab1.
+    CLEAR itab1.
+
+
+    CALL FUNCTION 'DDIF_FIELDINFO_GET'
+      EXPORTING
+        tabname        = lv_table  "自己输的表名
+        fieldname      = lv_field  "字段
+        langu          = sy-langu "语言码
+      TABLES
+        dfies_tab      = itab " like table dfies.
+      EXCEPTIONS
+        not_found      = 1
+        internal_error = 2
+        OTHERS         = 3.
+    IF sy-subrc <> 0.
+*    MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno
+*           WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+    ENDIF.
+    IF lv_table+0(3) = 'HRP'.
+      CLEAR: lt_t777t,lv_itext.
+      READ TABLE lt_t777t WITH KEY infty =  lv_table+3(4)   .
+      IF sy-subrc = 0.
+        MOVE lt_t777t-itext TO lv_itext.
+      ENDIF.
+    ELSEIF lv_table+0(2) = 'PA'.
+      CLEAR: lt_t582s ,lv_itext.
+      READ TABLE lt_t582s WITH KEY infty =  lv_table+2(4).
+      MOVE lt_t582s-itext TO lv_itext.
+    ENDIF.
+    LOOP AT itab.
+      itab1-tablename = lv_table.
+      itab2-tablename = lv_table.
+      itab1-tabtext    = lv_itext.
+      itab1-fieldname = itab-fieldname.
+      itab2-fieldname = itab-fieldname.
+      itab1-keyflag = itab-keyflag.
+      itab1-rollname = itab-rollname.
+      itab2-rollname = itab-rollname.
+      itab1-datatype = itab-datatype.
+      itab1-leng = itab-leng.
+      itab1-decimals = itab-decimals.
+      itab1-fieldtext = itab-fieldtext.
+      itab1-domname   = itab-domname.
+      itab1-checktable = itab-checktable.
+"因为我认为下面这些数据其实部署于HCM的码值范围，故而排除，可以根据需求自行调整
+      IF  ( itab1-datatype NE 'DATS' AND itab1-fieldname NE 'OBJID' AND
+            itab1-fieldname NE 'SOBID' AND itab1-fieldname NE 'PERNR'
+            AND itab1-fieldname NE 'INFTY' AND itab1-fieldname NE 'TABNR' ) .
+        itab1-f4availabl = itab-f4availabl.
+        itab2-f4availabl = itab-f4availabl.
+      ENDIF.
+      APPEND itab1.
+      CLEAR itab1.
+      APPEND itab2.
+      CLEAR itab2.
+    ENDLOOP.
+  ENDLOOP.
+
+  IF c_op = 'X'.
+    SORT itab2[] BY rollname.
+    DELETE ADJACENT DUPLICATES FROM itab2[] COMPARING rollname.
+
+    lt_retval-shlpname = '搜索帮助的名称 '.
+    lt_retval-fieldname = '字段名 '.
+*    lt_retval-recordpos = '所选记录数'.
+    lt_retval-fieldval = '字段内容'.
+    lt_retval-retfield =  '字段名 '.
+    APPEND lt_retval.
+
+    LOOP AT itab2 WHERE f4availabl EQ 'X'.
+      REFRESH l_retval.
+      CLEAR l_shlp.
+      CALL FUNCTION 'F4IF_DETERMINE_SEARCHHELP'
+        EXPORTING
+          tabname   = itab2-tablename
+          fieldname = itab2-fieldname
+        IMPORTING
+          shlp      = l_shlp
+        EXCEPTIONS
+          OTHERS    = 0.
+      CALL FUNCTION 'F4IF_SELECT_VALUES'
+        EXPORTING
+          shlp       = l_shlp
+*         MAXROWS    = 0
+*         SORT       = ' '
+*         CALL_SHLP_EXIT         = ' '
+* IMPORTING
+*         MAXROWS_EXCEEDED       =
+        TABLES
+*         RECORD_TAB =
+*         RECDESCR_TAB           =
+          return_tab = l_retval.
+      LOOP AT l_retval.
+        APPEND l_retval TO lt_retval.
+      ENDLOOP.
+    ENDLOOP.
+    SORT lt_retval.
+  ENDIF.
+
+
+*将内表数据下载到本地，类型为Excel
+  IF c_op = 'X'."下载码表
+
+* LOOP AT lt_retval.
+*   BREAK-POINT.
+*   ENDLOOP.
+
+    CONCATENATE p_dnfile '码表_' sy-uzeit '.TXT' INTO g_file.
+    CALL FUNCTION 'WS_DOWNLOAD'
+      EXPORTING
+        filename = g_file
+        filetype = 'DAT'
+      TABLES
+        data_tab = lt_retval.  "被下载的内表
+  ELSE.
+
+    CONCATENATE p_dnfile '数据字典_' sy-uzeit '.xls' INTO g_file.
+    CALL FUNCTION 'WS_DOWNLOAD'
+      EXPORTING
+        filename = g_file
+        filetype = 'DAT'
+      TABLES
+        data_tab = itab1.  "被下载的内表
+
+  ENDIF.
+ENDFORM.
+
+
+*--输出数据----------------------------------------
+FORM write_data .
+  LOOP AT itab1.
+    WRITE:/ itab1-fieldname,  "Fieldname
+            itab1-keyflag,    "KEY
+            itab1-rollname,   "Data Element
+            itab1-datatype,   "Data Type
+            itab1-leng,       "Length
+            itab1-decimals,   "Decimal Place
+            itab1-fieldtext.  "Short Description
+  ENDLOOP.
+ENDFORM.                    " write_data
